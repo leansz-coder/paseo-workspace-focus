@@ -1,0 +1,8 @@
+{
+  "id": "workspace-focus",
+  "name": "Workspace Focus \u00b7 \u5de5\u4f5c\u533a\u805a\u7126",
+  "description": "Read-only workspace lineage and agent counts, with reversible desktop sidebar folding.",
+  "requirements": {
+    "paseo": ">=0.11.1 <0.12.0"
+  }
+}

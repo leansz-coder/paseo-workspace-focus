@@ -1,0 +1,34 @@
+import {it,expect,vi} from 'vitest';
+vi.mock('../client/web',()=>({readPreferences:(_:unknown,p:unknown)=>p,writePreferences:()=>{}}));
+import {createStore} from '../client/store';
+import type {PaseoApi} from '@getpaseo/client';
+it('subscribes read-only, updates counts, fails open and releases both subscriptions',async()=>{
+ const handlers:any={};const release=vi.fn(async()=>{}),unsub=vi.fn();
+ const api:any={};for(const kind of ['agents','workspaces'])api[kind]=new Proxy({list:vi.fn(async()=>({subscription:{release,subscribe:(h:any)=>{handlers[kind]=h;return unsub;}}}))},{get(t,k){if(k!=='list')throw Error('Unexpected control API');return t.list;}});
+ const store=createStore(api as PaseoApi);store.bindHost('test');await store.start();expect(api.agents.list).toHaveBeenCalledWith(expect.objectContaining({page:{limit:200}}));
+ const listener=vi.fn();store.subscribe(listener);
+ const workspaces=['root','child'].map(id=>({id,projectId:'p',projectDisplayName:'p',name:id,status:'active'}));
+ const agents=[{id:'a',workspaceId:'root',title:'Parent',status:'idle',labels:{}},{id:'b',workspaceId:'child',title:'Child',status:'running',labels:{'paseo.parent-agent-id':'a'}}];
+ handlers.workspaces.snapshot({entries:workspaces,pageInfo:{hasMore:false}});handlers.agents.snapshot({entries:agents.map(agent=>({agent})),pageInfo:{hasMore:false}});
+ store.setPrefs({enabled:true,projects:['p'],keep:[]});expect(store.get().rows[1].folded).toBe(true);
+ listener.mockClear();handlers.agents.update({type:'agent_update',payload:{kind:'upsert',agent:{...agents[1],usage:{changed:1}}}});expect(listener).not.toHaveBeenCalled();
+ handlers.agents.update({type:'agent_update',payload:{kind:'upsert',agent:{...agents[1],status:'idle'}}});expect(store.get().rows[1].counts.running).toBe(0);
+ handlers.agents.error(Error('offline'));expect(store.get().rows[1].folded).toBe(false);expect(store.get().error).toContain('offline');
+ handlers.workspaces.update({type:'workspace_update',payload:{kind:'remove',id:'child'}});expect(store.get().rows.length).toBe(1);
+ listener.mockClear();store.setPrefs({...store.get().prefs,keep:['no-members']});expect(listener).toHaveBeenCalledOnce();
+ store.dispose();expect(release).toHaveBeenCalledTimes(2);expect(unsub).toHaveBeenCalledTimes(2);
+});
+it('tracks both subscription failures independently, recovers, and retries without retaining old subscriptions',async()=>{
+ const handlers:any={},releases:any[]=[];
+ const api:any={};for(const kind of ['agents','workspaces'])api[kind]={list:vi.fn(async()=>{const release=vi.fn(async()=>{});releases.push(release);return {subscription:{release,subscribe:(h:any)=>{handlers[kind]=h;return vi.fn();}}};})};
+ const store=createStore(api);await store.start();
+ const snapshot={entries:[],pageInfo:{hasMore:false}};
+ handlers.agents.snapshot(snapshot);handlers.workspaces.snapshot(snapshot);expect(store.get().complete).toBe(true);
+ handlers.workspaces.error(Error('workspace offline'));handlers.agents.snapshot(snapshot);
+ expect(store.get().complete).toBe(false);expect(store.get().error).toContain('workspace offline');
+ handlers.agents.error(Error('agent offline'));handlers.workspaces.snapshot(snapshot);
+ expect(store.get().complete).toBe(false);expect(store.get().error).toContain('agent offline');expect(store.get().error).not.toContain('workspace offline');
+ handlers.agents.snapshot(snapshot);expect(store.get().complete).toBe(true);expect(store.get().error).toBeNull();
+ const old=handlers.agents;await store.retry();expect(releases.slice(0,2).every(f=>f.mock.calls.length===1)).toBe(true);
+ old.snapshot(snapshot);expect(store.get().complete).toBe(false);store.dispose();expect(releases.every(f=>f.mock.calls.length===1)).toBe(true);
+});
