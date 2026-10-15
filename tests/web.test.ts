@@ -30,3 +30,30 @@ it('keeps selected workspaces visible and updates status counts',async()=>{
 it('does not scan the sidebar for ordinary streamed chat text',async()=>{
  const {cleanup}=setup();await Promise.resolve();flush();document.getElementById('chat').appendChild(document.createElement('span'));await Promise.resolve();expect(queue.length).toBe(0);cleanup();
 });
+it('keeps decorations and manual expansion through theme-object changes and sidebar DOM replacement',async()=>{
+ const {cleanup,s}=setup();cleanup();
+ const {createSidebarLifetime}=await import('../client/web');
+ const store={get:()=>s,bindHost:vi.fn(),subscribe:()=>()=>{}} as unknown as FocusStore;
+ const colors={foreground:'#fff',foregroundMuted:'#888',surface1:'#222',accent:'#3af',statusDanger:'#f44',statusWarning:'#fa4'};
+ const lifetime=createSidebarLifetime(store,vi.fn());lifetime.update('host',colors);flush();
+ const group=document.querySelector('[aria-expanded]');group.click();flush();expect(group.getAttribute('aria-expanded')).toBe('true');
+ lifetime.update('host',{...colors});flush();expect(document.querySelector('[aria-expanded]')).toBe(group);expect(group.getAttribute('aria-expanded')).toBe('true');
+ lifetime.update('host',{...colors,accent:'#5bf'});flush();expect(document.querySelector('[aria-expanded]')).toBe(group);
+ const list=document.getElementById('list');list.innerHTML=['manual','child','unknown'].map(id=>`<div id="branch-${id}"><div><button data-testid="sidebar-workspace-row-host:${id}" aria-selected="false">${id}</button></div></div>`).join('');
+ await Promise.resolve();flush();expect(document.querySelector('[aria-expanded]').getAttribute('aria-expanded')).toBe('true');expect(document.querySelectorAll('[data-wf-hidden]')).toHaveLength(0);
+ lifetime.dispose();lifetime.update('host',colors);flush();expect(document.querySelector('[data-wf-owned]')).toBeNull();
+});
+it('maintains independent simultaneous host folding and only restores the disposed host',async()=>{
+ const {cleanup,s}=setup();cleanup();
+ const list=document.getElementById('list');list.insertAdjacentHTML('beforeend','<div id="other-branch"><button data-testid="sidebar-workspace-row-host-b:child">Child B</button></div>');
+ const {createSidebarLifetime}=await import('../client/web');
+ const colors={foreground:'#fff',foregroundMuted:'#888',surface1:'#222',accent:'#3af',statusDanger:'#f44',statusWarning:'#fa4'};
+ const store=(state:any)=>({get:()=>state,bindHost:vi.fn(),subscribe:()=>()=>{}} as unknown as FocusStore);
+ const a=createSidebarLifetime(store(s),vi.fn()),b=createSidebarLifetime(store({...s,hostId:'host-b'}),vi.fn());
+ a.update('host',colors);flush();b.update('host-b',colors);flush();
+ expect(document.getElementById('branch-child').getAttribute('data-wf-hidden')).toBe('true');expect(document.getElementById('other-branch').getAttribute('data-wf-hidden')).toBe('true');
+ // Revisiting the same host/theme must not recreate either controller.
+ a.update('host',{...colors});b.update('host-b',{...colors});flush();expect(document.querySelectorAll('[aria-expanded]')).toHaveLength(2);
+ a.dispose();expect(document.getElementById('branch-child').hasAttribute('data-wf-hidden')).toBe(false);expect(document.getElementById('other-branch').getAttribute('data-wf-hidden')).toBe('true');
+ b.dispose();expect(document.querySelectorAll('[data-wf-owned],[data-wf-hidden]')).toHaveLength(0);
+});

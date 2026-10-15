@@ -24,8 +24,9 @@ export function writePreferences(host:string,prefs:Preferences){if(!web())return
 const ROW='[data-testid^="sidebar-workspace-row-"]';
 const PROJECT='[data-testid^="sidebar-project-row-"]';
 const OWN='data-wf-owned';
-export function installSidebar(store:FocusStore,open:(projectId?:string)=>void,colors:{foreground:string;foregroundMuted:string;surface1:string;accent:string;statusDanger:string;statusWarning:string}) {
- if(!web())return()=>{};
+export interface SidebarColors {foreground:string;foregroundMuted:string;surface1:string;accent:string;statusDanger:string;statusWarning:string}
+export function installSidebar(store:FocusStore,open:(projectId?:string)=>void,colors:SidebarColors) {
+ if(!web())return Object.assign(()=>{},{updateColors:(_colors:SidebarColors)=>{}});
  let disposed=false,frame:number|null=null;
  const expanded=new Set<string>(), touched=new Set<Element>(), decorations=new Map<Element,Element>();
  const groups=new Map<Element,{node:Element;button:Element;title:Element;summary:Element;detail:Element;key:string}>();
@@ -72,6 +73,7 @@ export function installSidebar(store:FocusStore,open:(projectId?:string)=>void,c
     styleOf(detail,{display:'block',background:'transparent',border:'0',padding:'2px 3px','font-size':'14px','line-height':'20px',color:colors.foregroundMuted,'flex-shrink':'0'});
     button.appendChild(title);button.appendChild(summary);node.appendChild(button);node.appendChild(detail);container.appendChild(node);group={node,button,title,summary,detail,key:`${s.hostId}:${bucket.projectId}`};groups.set(container,group);
    }
+   styleOf(group.node,{color:colors.foregroundMuted});styleOf(group.detail,{color:colors.foregroundMuted});
    const ex=expanded.has(group.key), list=bucket.items.map(i=>i.row), c=sumCounts(list);
    const text=`${ex?'▾':'▸'} Agent 工作区 · ${list.length} 个 · ${countText(c)}`;
    setText(group.title,`${ex?'▾':'▸'} 派生工作区 ${list.length}`);setText(group.summary,[`${c.total} agents`,c.running?`${c.running} 运行`:'',c.needsInput?`${c.needsInput} 待确认`:'',c.failed?`${c.failed} 失败`:''].filter(Boolean).join(' · '));styleOf(group.summary,{color:c.needsInput?colors.statusWarning:c.failed?colors.statusDanger:c.running?colors.accent:colors.foregroundMuted});group.button.setAttribute('aria-expanded',String(ex));group.button.setAttribute('aria-label',`${ex?'收起':'展开'} ${text}`);
@@ -93,5 +95,22 @@ export function installSidebar(store:FocusStore,open:(projectId?:string)=>void,c
  });
  observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['aria-selected']});
  const unsub=store.subscribe(schedule);schedule();
- return()=>{disposed=true;unsub();observer.disconnect();if(frame!==null)window.cancelAnimationFrame(frame);for(const e of touched)e.removeAttribute('data-wf-hidden');for(const e of decorations.values())e.remove();for(const g of groups.values())g.node.remove();style.remove();};
+ return Object.assign(()=>{if(disposed)return;disposed=true;unsub();observer.disconnect();if(frame!==null)window.cancelAnimationFrame(frame);for(const e of touched)e.removeAttribute('data-wf-hidden');for(const e of decorations.values())e.remove();for(const g of groups.values())g.node.remove();style.remove();},{updateColors(next:SidebarColors){if(disposed||JSON.stringify(colors)===JSON.stringify(next))return;colors=next;schedule();}});
+}
+
+/** A host installation owns its sidebar decoration, not its transient entry row.
+ * Paseo swaps that entry on cross-host navigation; only plugin teardown restores
+ * the original sidebar. Each controller still touches matching host rows only.
+ */
+export function createSidebarLifetime(store:FocusStore,open:(projectId?:string)=>void) {
+ let dead=false,host:string|null=null,controller:ReturnType<typeof installSidebar>|null=null;
+ return {
+  update(hostId:string,colors:SidebarColors){
+   if(dead||(host!==null&&host!==hostId))return;
+   host=hostId;store.bindHost(hostId);
+   if(!controller)controller=installSidebar(store,open,colors);
+   else controller.updateColors(colors);
+  },
+  dispose(){if(dead)return;dead=true;controller?.();controller=null;},
+ };
 }
