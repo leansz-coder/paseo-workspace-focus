@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { countText, sumCounts, type Preferences, type Row } from '../shared/model';
+import { countText, sumCounts, type Preferences, type Row, type Counts } from '../shared/model';
 import type { FocusStore } from './store';
 // Browser-only surface. Do not add DOM globals to cross-platform components.
 interface Node { nodeType:number; parentElement:Element|null; textContent:string|null; contains(n:Node|null):boolean }
@@ -29,12 +29,37 @@ export function installSidebar(store:FocusStore,open:(projectId?:string)=>void,c
  if(!web())return Object.assign(()=>{},{updateColors:(_colors:SidebarColors)=>{}});
  let disposed=false,frame:number|null=null;
  const expanded=new Set<string>(), touched=new Set<Element>(), decorations=new Map<Element,Element>();
+ const hints=new Map<Element,{original:string|null;applied:string}>();
  const groups=new Map<Element,{node:Element;button:Element;title:Element;summary:Element;detail:Element;key:string}>();
  const style=document.createElement('style');style.setAttribute(OWN,'true');
  style.textContent='[data-wf-hidden="true"]{display:none!important} [data-wf-owned]{box-sizing:border-box} button[data-wf-owned]{font:inherit;color:inherit;cursor:pointer}';document.head.appendChild(style);
  function owned(tag:string){const n=document.createElement(tag);n.setAttribute(OWN,'true');return n;}
  function setText(n:Element,text:string){if(n.textContent!==text)n.textContent=text;}
  function styleOf(n:Element,values:Record<string,string>){for(const [k,v] of Object.entries(values))n.style.setProperty(k,v);}
+ function renderCounts(node:Element,c:Counts,showTotal:boolean){
+  const parts=[
+   ...(showTotal?[{kind:'total',text:`${c.total} 个会话`,color:colors.foregroundMuted}]:[]),
+   ...(c.running?[{kind:'running',text:`${c.running} 运行中`,color:colors.accent}]:[]),
+   ...(c.initializing?[{kind:'initializing',text:`${c.initializing} 启动中`,color:colors.foregroundMuted}]:[]),
+   ...(c.needsInput?[{kind:'attention',text:`${c.needsInput} 待确认`,color:colors.statusWarning}]:[]),
+   ...(c.failed?[{kind:'failed',text:`${c.failed} 失败`,color:colors.statusDanger}]:[]),
+  ];
+  const signature=JSON.stringify(parts);
+  if(node.getAttribute('data-wf-counts')!==signature){
+   node.setAttribute('data-wf-counts',signature);node.textContent='';
+   for(const [index,part] of parts.entries()){
+    if(index){const dot=owned('span');dot.textContent='·';dot.setAttribute('aria-hidden','true');styleOf(dot,{color:colors.foregroundMuted,opacity:'.55'});node.appendChild(dot);}
+    const item=owned('span');item.setAttribute('data-wf-state',part.kind);item.textContent=part.text;styleOf(item,{color:part.color,'white-space':'nowrap'});node.appendChild(item);
+   }
+  }
+  return parts.length>0;
+ }
+ function hint(element:Element,value:string){
+  const prior=hints.get(element),current=element.getAttribute('title');
+  const original=prior&&current===prior.applied?prior.original:current;
+  if(current!==value)element.setAttribute('title',value);hints.set(element,{original,applied:value});
+ }
+ function restoreHint(element:Element){const prior=hints.get(element);if(prior&&element.getAttribute('title')===prior.applied){if(prior.original===null)element.removeAttribute('title');else element.setAttribute('title',prior.original);}hints.delete(element);}
  function branchFor(row:Element):{branch:Element;container:Element}|null {
   let branch=row,parent=row.parentElement;
   while(parent && parent!==document.body && parent.querySelectorAll(ROW).length===1 && !parent.querySelector(PROJECT)){branch=parent;parent=parent.parentElement;}
@@ -51,16 +76,18 @@ export function installSidebar(store:FocusStore,open:(projectId?:string)=>void,c
    const {branch,container}=place;present.add(branch);touched.add(branch);
    let label=decorations.get(branch);
    const metaLine=element.querySelector('[data-testid^="host-badge-"]')?.parentElement;
-   if(!label||!label.isConnected){label=owned('button');label.setAttribute('type','button');styleOf(label,{background:'transparent',border:'0','text-align':'left',padding:'0',margin:metaLine?'0 0 0 2px':'0 8px 4px 29px',color:colors.foregroundMuted,'font-size':'10px','line-height':'16px','white-space':'nowrap','flex-shrink':'0'});(metaLine??branch).appendChild(label);decorations.set(branch,label);}
+   if(!label||!label.isConnected){label=owned('button');label.setAttribute('type','button');styleOf(label,{background:'transparent',border:'0','text-align':'left',padding:'0',margin:metaLine?'0 0 0 8px':'0 8px 2px 28px',color:colors.foregroundMuted,'font-size':'11px','line-height':'18px','align-items':'center','flex-wrap':'wrap',gap:'5px','min-width':'0'});(metaLine??branch).appendChild(label);decorations.set(branch,label);}
    const source=data.origin==='manual'?'已设常驻':data.parents.length?`派生自：${data.parents.map(p=>p.title).join('、')}`:'来源未知';
    const detail=`${countText(data.counts)}${!s.complete?'（数据未完整）':''}`;
-   const compact=[data.counts.total>1?`${data.counts.total} agents`:'',data.counts.running?`${data.counts.running} 运行`:'',data.counts.needsInput?`${data.counts.needsInput} 待确认`:'',data.counts.failed?`${data.counts.failed} 失败`:''].filter(Boolean).join(' · ');
-   setText(label,compact?`· ${compact}`:'');styleOf(label,{display:compact?'inline-block':'none'});label.setAttribute('title',`${detail}；${source}。点击查看来源与显示设置`);label.setAttribute('aria-label',`${data.title||data.name}：${detail}；${source}；查看来源`);label.onclick=e=>{e.stopPropagation();open(data.projectId);};
-   styleOf(label,{color:data.counts.needsInput?colors.statusWarning:data.counts.failed?colors.statusDanger:data.counts.running?colors.accent:colors.foregroundMuted});
+   const visible=renderCounts(label,data.counts,false);
+   styleOf(label,{display:visible?'inline-flex':'none'});
+   label.setAttribute('title',`${detail}；${source}。点击查看来源与显示设置`);label.setAttribute('aria-label',`${data.title||data.name}：${detail}；${source}；查看来源`);label.onclick=e=>{e.stopPropagation();open(data.projectId);};
+   hint(element,`${data.title||data.name}；${detail}；${source}`);
    if(data.folded){
     const bucket=buckets.get(container)??{items:[],projectId:data.projectId};bucket.items.push({row:data,branch});buckets.set(container,bucket);
    }else branch.removeAttribute('data-wf-hidden');
   }
+  for(const element of hints.keys())if(!element.isConnected||!rows.has(element.getAttribute('data-testid')??''))restoreHint(element);
   for(const branch of touched)if(!present.has(branch)){branch.removeAttribute('data-wf-hidden');decorations.get(branch)?.remove();decorations.delete(branch);touched.delete(branch);}
   for(const [container,bucket] of buckets){
    // A fold only owns siblings from one project. On incompatible markup fail open.
@@ -68,15 +95,15 @@ export function installSidebar(store:FocusStore,open:(projectId?:string)=>void,c
    let group=groups.get(container);
    if(!group||!group.node.isConnected){
     const node=owned('div'),button=owned('button'),title=owned('span'),summary=owned('span'),detail=owned('button');button.setAttribute('type','button');detail.setAttribute('type','button');
-    styleOf(node,{display:'flex','align-items':'center',gap:'6px',margin:'2px 12px 4px 28px',padding:'4px 0',color:colors.foregroundMuted});
-    styleOf(button,{display:'flex','align-items':'center','justify-content':'space-between',gap:'8px',flex:'1','min-width':'0',background:'transparent',border:'0',padding:'2px 0','text-align':'left','font-size':'11px','line-height':'20px'});styleOf(title,{'white-space':'nowrap'});styleOf(summary,{'white-space':'nowrap','font-size':'10px'});
-    styleOf(detail,{display:'block',background:'transparent',border:'0',padding:'2px 3px','font-size':'14px','line-height':'20px',color:colors.foregroundMuted,'flex-shrink':'0'});
+    styleOf(node,{display:'flex','align-items':'center',gap:'4px',margin:'0 10px 4px 28px',padding:'2px 0',color:colors.foregroundMuted});
+    styleOf(button,{display:'flex','align-items':'center','justify-content':'flex-start','flex-wrap':'wrap','column-gap':'10px','row-gap':'2px',flex:'1','min-width':'0',background:'transparent',border:'0',padding:'2px 0','text-align':'left','font-size':'11px','line-height':'20px'});styleOf(title,{'white-space':'nowrap'});styleOf(summary,{display:'inline-flex','align-items':'center','flex-wrap':'wrap',gap:'5px','font-size':'10px','line-height':'18px'});
+    styleOf(detail,{display:'block',background:'transparent',border:'0',padding:'2px 5px','border-radius':'5px','font-size':'14px','line-height':'20px',color:colors.foregroundMuted,'flex-shrink':'0'});
     button.appendChild(title);button.appendChild(summary);node.appendChild(button);node.appendChild(detail);container.appendChild(node);group={node,button,title,summary,detail,key:`${s.hostId}:${bucket.projectId}`};groups.set(container,group);
    }
    styleOf(group.node,{color:colors.foregroundMuted});styleOf(group.detail,{color:colors.foregroundMuted});
    const ex=expanded.has(group.key), list=bucket.items.map(i=>i.row), c=sumCounts(list);
    const text=`${ex?'▾':'▸'} Agent 工作区 · ${list.length} 个 · ${countText(c)}`;
-   setText(group.title,`${ex?'▾':'▸'} 派生工作区 ${list.length}`);setText(group.summary,[`${c.total} agents`,c.running?`${c.running} 运行`:'',c.needsInput?`${c.needsInput} 待确认`:'',c.failed?`${c.failed} 失败`:''].filter(Boolean).join(' · '));styleOf(group.summary,{color:c.needsInput?colors.statusWarning:c.failed?colors.statusDanger:c.running?colors.accent:colors.foregroundMuted});group.button.setAttribute('aria-expanded',String(ex));group.button.setAttribute('aria-label',`${ex?'收起':'展开'} ${text}`);
+   setText(group.title,`${ex?'▾':'▸'} 派生工作区 ${list.length}`);renderCounts(group.summary,c,true);group.button.setAttribute('aria-expanded',String(ex));group.button.setAttribute('aria-label',`${ex?'收起':'展开'} ${text}`);
    group.button.onclick=e=>{e.stopPropagation();if(expanded.has(group!.key))expanded.delete(group!.key);else expanded.add(group!.key);schedule();};
    const parents=[...new Set(list.flatMap(r=>r.parents.map(p=>p.title)))];setText(group.detail,'⋯');group.detail.setAttribute('aria-label','查看派生来源和常驻设置');group.detail.setAttribute('title',`派生自：${parents.join('、')}；点击管理`);group.button.setAttribute('title',`${text}；派生自：${parents.join('、')}`);group.detail.onclick=e=>{e.stopPropagation();open(bucket.projectId);};
    for(const i of bucket.items){
@@ -95,7 +122,7 @@ export function installSidebar(store:FocusStore,open:(projectId?:string)=>void,c
  });
  observer.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['aria-selected']});
  const unsub=store.subscribe(schedule);schedule();
- return Object.assign(()=>{if(disposed)return;disposed=true;unsub();observer.disconnect();if(frame!==null)window.cancelAnimationFrame(frame);for(const e of touched)e.removeAttribute('data-wf-hidden');for(const e of decorations.values())e.remove();for(const g of groups.values())g.node.remove();style.remove();},{updateColors(next:SidebarColors){if(disposed||JSON.stringify(colors)===JSON.stringify(next))return;colors=next;schedule();}});
+ return Object.assign(()=>{if(disposed)return;disposed=true;unsub();observer.disconnect();if(frame!==null)window.cancelAnimationFrame(frame);for(const e of touched)e.removeAttribute('data-wf-hidden');for(const e of hints.keys())restoreHint(e);for(const e of decorations.values())e.remove();for(const g of groups.values())g.node.remove();style.remove();},{updateColors(next:SidebarColors){if(disposed||JSON.stringify(colors)===JSON.stringify(next))return;colors=next;schedule();}});
 }
 
 /** A host installation owns its sidebar decoration, not its transient entry row.

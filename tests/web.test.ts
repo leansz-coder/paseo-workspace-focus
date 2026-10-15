@@ -19,7 +19,7 @@ function setup(){
 it('folds only proven children on the matching host; expand and cleanup restore rows',()=>{
  const {cleanup,open}=setup();expect(document.querySelectorAll('[data-wf-hidden]').length).toBe(1);
  expect(document.getElementById('branch-child').getAttribute('data-wf-hidden')).toBe('true');
- const button=document.querySelector('[aria-expanded]');expect(button.textContent).toContain('1 agents · 1 运行');button.click();flush();expect(document.querySelectorAll('[data-wf-hidden]').length).toBe(0);
+ const button=document.querySelector('[aria-expanded]');expect(button.textContent).toContain('1 个会话·1 运行中');button.click();flush();expect(document.querySelectorAll('[data-wf-hidden]').length).toBe(0);
  document.querySelector('[data-wf-owned][title]').click();expect(open).toHaveBeenCalledWith('p');
  cleanup();expect(document.querySelectorAll('[data-wf-owned],[data-wf-hidden]').length).toBe(0);expect(document.querySelectorAll('[data-testid^="sidebar-workspace-row"]').length).toBe(4);
 });
@@ -56,4 +56,19 @@ it('maintains independent simultaneous host folding and only restores the dispos
  a.update('host',{...colors});b.update('host-b',{...colors});flush();expect(document.querySelectorAll('[aria-expanded]')).toHaveLength(2);
  a.dispose();expect(document.getElementById('branch-child').hasAttribute('data-wf-hidden')).toBe(false);expect(document.getElementById('other-branch').getAttribute('data-wf-hidden')).toBe('true');
  b.dispose();expect(document.querySelectorAll('[data-wf-owned],[data-wf-hidden]')).toHaveLength(0);
+});
+it('hides idle totals, preserves independent status colors, and restores native hints',()=>{
+ const {cleanup,s,listeners}=setup();
+ const row=document.querySelector('[data-testid="sidebar-workspace-row-host:manual"]');
+ const label=document.querySelector('#branch-manual [data-wf-counts]');
+ s.rows[0].counts.total=2;listeners.forEach(f=>f());flush();
+ expect(label.style.display).toBe('none');expect(row.getAttribute('title')).toContain('2 个 agent');
+ row.setAttribute('title','Native tooltip updated');
+ s.rows[0].counts.running=1;s.rows[0].counts.failed=1;listeners.forEach(f=>f());flush();
+ expect(label.style.display).toBe('inline-flex');expect(label.textContent).toBe('1 运行中·1 失败');
+ expect(label.querySelector('[data-wf-state="running"]').style.color).not.toBe(label.querySelector('[data-wf-state="failed"]').style.color);
+ const summary=document.querySelector('[aria-expanded] [data-wf-state="total"]');
+ expect(summary.style.color).toBe('rgb(136, 136, 136)');
+ cleanup();expect(row.getAttribute('title')).toBe('Native tooltip updated');
+ expect(document.querySelector('[data-testid="sidebar-workspace-row-host:child"]').hasAttribute('title')).toBe(false);
 });

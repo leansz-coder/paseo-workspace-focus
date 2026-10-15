@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3
+
+- Hide idle totals on ordinary workspace rows; retain counts and lineage in hover hints and the details screen.
+- Keep folded-group totals neutral and color running, pending and failed counts independently.
+- Use Chinese session labels, tighter spacing and wrapping for compact sidebars.
+- Restore original hover hints on cleanup, preserving host changes.
+- 25 regression tests and TypeScript checks pass. Native desktop visual verification was unavailable for this release.
+
 ## 0.1.2
 
 - Keep each host sidebar controller alive until plugin teardown instead of disposing it when navigation swaps the sidebar entry component.

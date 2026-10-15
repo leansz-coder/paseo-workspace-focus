@@ -7,7 +7,7 @@
 在已开启插件功能的 Paseo daemon 主机上执行：
 
 ```sh
-paseo plugin add git:leansz-coder/paseo-workspace-focus --ref v0.1.2
+paseo plugin add git:leansz-coder/paseo-workspace-focus --ref v0.1.3
 paseo plugin ls
 ```
 
@@ -20,7 +20,7 @@ paseo plugin ls
 - 只有所有未归档 agent 都有其他工作区的父 agent，才判为派生工作区。父级元数据包含已归档 agent，但计数不含它们。
 - 来源未知、混合、空、置顶、当前选中和用户设为常驻的工作区保持可见。来源表示父子关系，并非实际创建者审计。
 - 首次进入某主机后，侧栏装饰由该主机插件实例持续维护；切换到其他主机标签页不撤销已建立的折叠。主题更新不重建分组，手动展开状态保留到插件卸载。
-- 运行数取自 agent 状态；绿色未读标记不等于正在运行。单个空闲 agent 不额外占一行，完整统计在详情和提示中。
+- 运行数取自 agent 状态；绿色未读标记不等于正在运行。普通工作区不额外显示空闲会话总数，完整统计在悬停提示和详情中；只显示运行、启动、待确认和失败状态，各状态独立着色。折叠汇总保留灰色会话总数。
 - 列表每页 200 项，继续读取全部分页。数据未完整或任一订阅失败时停止隐藏；恢复后再折叠，也可点“重新读取”。
 
 ## 边界
@@ -35,7 +35,7 @@ paseo plugin ls
 
 ```sh
 paseo plugin update workspace-focus
-paseo plugin update workspace-focus --ref v0.1.2
+paseo plugin update workspace-focus --ref v0.1.3
 paseo plugin disable workspace-focus
 ```
 
@@ -49,4 +49,4 @@ npm run typecheck
 npm test
 ```
 
-24 项回归测试覆盖来源、计数、分页增删、断线恢复、过期响应、偏好、侧栏展开及清理。MIT 许可证。
+25 项回归测试覆盖来源、计数、分页增删、断线恢复、过期响应、偏好、侧栏展开及清理。MIT 许可证。
