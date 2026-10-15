@@ -1,4 +1,7 @@
-import type { PaseoApi, PaseoAgent, PaseoWorkspace } from '@getpaseo/client';
+import type { PluginClientContext } from '@getpaseo/plugin/client';
+type PaseoApi = PluginClientContext['paseo'];
+type PaseoAgent = Awaited<ReturnType<PaseoApi['agents']['list']>>['entries'][number]['agent'];
+type PaseoWorkspace = Awaited<ReturnType<PaseoApi['workspaces']['list']>>['entries'][number];
 import { useSyncExternalStore } from 'react';
 import { summarize, type Agent, type Workspace, type Preferences, type Row } from '../shared/model';
 import { defaults } from './bootstrap';

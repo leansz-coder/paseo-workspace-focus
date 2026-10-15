@@ -7,7 +7,7 @@
 在已开启插件功能的 Paseo daemon 主机上执行：
 
 ```sh
-paseo plugin add git:leansz-coder/paseo-workspace-focus --ref v0.1.0
+paseo plugin add git:leansz-coder/paseo-workspace-focus --ref v0.1.1
 paseo plugin ls
 ```
 
@@ -34,7 +34,7 @@ paseo plugin ls
 
 ```sh
 paseo plugin update workspace-focus
-paseo plugin update workspace-focus --ref v0.1.0
+paseo plugin update workspace-focus --ref v0.1.1
 paseo plugin disable workspace-focus
 ```
 
